@@ -58,6 +58,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: "getNewCards",
+        description: "Retrieve new (unlearned) cards from any deck that are available for learning",
+        inputSchema: {
+          type: "object",
+          properties: {
+            deckName: {
+              type: "string",
+              description: "Optional: Filter new cards by specific deck name. If omitted, returns new cards from all decks",
+            },
+          },
+          description: "Finds cards that haven't been learned yet (new cards). Returns detailed card information including content, deck, and card data"
+        },
+      },
+      {
         name: "getDueCards",
         description: "Retrieve cards that are currently due for review, with optional deck filtering",
         inputSchema: {
@@ -139,6 +153,57 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               totalDecks: decks.length,
               mainDecks: mainDecks,
               organizedDecks: organized
+            }, null, 2)
+          }
+        ]
+      };
+
+    case "getNewCards":
+      let newQuery = "is:new";
+      if (request.params.arguments?.deckName) {
+        newQuery += ` deck:"${request.params.arguments.deckName}"`;
+      }
+
+      const newCardIds = await ankiRequest<number[]>("findCards", { query: newQuery });
+
+      if (newCardIds.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                newCards: 0,
+                deck: request.params.arguments?.deckName || "all decks",
+                message: "No new cards available for learning"
+              }, null, 2)
+            }
+          ]
+        };
+      }
+
+      // Get detailed info for first 5 cards as examples
+      const newCardsInfo = await ankiRequest<any[]>("cardsInfo", { cards: newCardIds.slice(0, 5) });
+
+      const newCardData = newCardsInfo.map(card => {
+        return {
+          noteId: card.note,
+          deck: card.deckName,
+          model: card.modelName,
+          reviews: card.reps,
+          interval: card.interval,
+          due: card.due
+        };
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              totalNewCards: newCardIds.length,
+              deck: request.params.arguments?.deckName || "all decks",
+              remainingCards: Math.max(0, newCardIds.length - 5),
+              sampleCards: newCardData
             }, null, 2)
           }
         ]
@@ -279,7 +344,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async () => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Simple Anki MCP server started with stdio transport");
+  console.error("Running server Version 0.1.0 - Simple Anki MCP server started with stdio transport");
 }
 
 main().catch((error) => {
