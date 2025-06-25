@@ -41,31 +41,6 @@ const server = new Server(
   },
 );
 
-const noteParameters = {
-  type: "object",
-  properties: {
-    deckName: {
-      type: "string",
-      description: "Name of the deck to add note to",
-    },
-    modelName: {
-      type: "string",
-      description: "Name of the note model/type to use",
-    },
-    fields: {
-      type: "object",
-      description: "Map of fields to the value in the note model being used",
-    },
-    tags: {
-      type: "array",
-      items: {
-        type: "string",
-      },
-      description: "Tags to apply to the note",
-    },
-  },
-  required: ["deckName", "modelName", "fields"],
-};
 
 /**
  * Handler that lists available tools.
@@ -76,10 +51,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "listDecks",
         description: "List all available Anki decks in your collection",
-        inputSchema: { 
-          type: "object", 
+        inputSchema: {
+          type: "object",
           properties: {},
-          description: "No parameters required - returns all deck names" 
+          description: "No parameters required - returns all deck names"
         },
       },
       {
@@ -97,9 +72,39 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: "addNote",
-        description: "Create a new flashcard note in your Anki collection",
-        inputSchema: noteParameters,
+        name: "getNoteInfo",
+        description: "Get detailed information about a specific note including all its fields",
+        inputSchema: {
+          type: "object",
+          properties: {
+            noteId: {
+              type: "number",
+              description: "The unique ID of the note to retrieve information for"
+            }
+          },
+          required: ["noteId"],
+          description: "Retrieves complete note information including fields, tags, model type, and associated cards"
+        }
+      },
+      {
+        name: "answerCard",
+        description: "Answer a card with a specific difficulty rating during review",
+        inputSchema: {
+          type: "object",
+          properties: {
+            cardId: {
+              type: "number",
+              description: "The unique ID of the card to answer"
+            },
+            ease: {
+              type: "number",
+              enum: [1, 2, 3, 4],
+              description: "Answer difficulty: 1=Again (failed), 2=Hard, 3=Good, 4=Easy"
+            }
+          },
+          required: ["cardId", "ease"],
+          description: "Simulates answering a card during review with the specified ease/difficulty rating"
+        }
       },
     ],
   };
@@ -112,11 +117,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   switch (request.params.name) {
     case "listDecks":
       const decks = await ankiRequest<string[]>("deckNames");
-      
+
       // Group decks by main category
       const mainDecks = decks.filter(deck => !deck.includes("::"));
       const subDecks = decks.filter(deck => deck.includes("::"));
-      
+
       // Group subdecks by parent
       const organized: Record<string, string[]> = {};
       subDecks.forEach(deck => {
@@ -124,7 +129,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!organized[parent]) organized[parent] = [];
         organized[parent].push(deck);
       });
-      
+
       return {
         content: [
           {
@@ -138,15 +143,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
         ]
       };
-      
+
     case "getDueCards":
       let query = "is:due";
       if (request.params.arguments?.deckName) {
         query += ` deck:"${request.params.arguments.deckName}"`;
       }
-      
+
       const cardIds = await ankiRequest<number[]>("findCards", { query });
-      
+
       if (cardIds.length === 0) {
         return {
           content: [
@@ -161,18 +166,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ]
         };
       }
-      
+
       // Get detailed info for first 5 cards as examples
       const cardsInfo = await ankiRequest<any[]>("cardsInfo", { cards: cardIds.slice(0, 5) });
-      
+
       const cardData = cardsInfo.map(card => {
-        const fieldNames = Object.keys(card.fields);
-        const primaryField = fieldNames.length > 0 ? card.fields[fieldNames[0]]?.value || "No content" : "No content";
-        const cleanContent = primaryField.replace(/<[^>]*>/g, '').slice(0, 100);
-        
         return {
-          id: card.cardId,
-          content: cleanContent,
+          noteId: card.note,
           deck: card.deckName,
           model: card.modelName,
           reviews: card.reps,
@@ -180,7 +180,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           due: card.due
         };
       });
-      
+
       return {
         content: [
           {
@@ -194,25 +194,69 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
         ]
       };
-      
-    case "addNote":
-      const createdNoteId = await ankiRequest<number>(
-        "addNote",
-        { note: request.params.arguments },
-      );
+
+    case "getNoteInfo":
+      const noteId = request.params.arguments?.noteId;
+      const noteInfo = await ankiRequest<any[]>("notesInfo", { notes: [noteId] });
+
+      if (!noteInfo || noteInfo.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                error: "Note not found",
+                noteId: noteId
+              }, null, 2)
+            }
+          ]
+        };
+      }
+
+      const note = noteInfo[0];
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              noteId: noteId,
+              modelName: note.modelName,
+              tags: note.tags,
+              fields: note.fields,
+              cards: note.cards
+            }, null, 2)
+          }
+        ]
+      };
+
+    case "answerCard":
+      const cardId = request.params.arguments?.cardId;
+      const ease = request.params.arguments?.ease;
+
+      await ankiRequest("answerCards", {
+        answers: [{ cardId: cardId, ease: ease }]
+      });
+
+      const easeLabels = {
+        1: "Again (failed)",
+        2: "Hard",
+        3: "Good",
+        4: "Easy"
+      };
+
       return {
         content: [
           {
             type: "text",
             text: JSON.stringify({
               success: true,
-              noteId: createdNoteId,
-              deck: request.params.arguments?.deckName,
-              model: request.params.arguments?.modelName,
-              message: "Note added to Anki collection"
+              cardId: cardId,
+              ease: ease,
+              difficulty: easeLabels[ease as keyof typeof easeLabels],
+              message: "Card answered successfully"
             }, null, 2)
           }
-        ],
+        ]
       };
 
     default:
