@@ -1,0 +1,33 @@
+{
+  "name": "anki-mcp",
+  "version": "0.1.0",
+  "description": "A server to integrate with Anki via the AnkiConnect   plugin ",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "anki-mcp": "./build/index.js"
+  },
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "prepare": "npm run build",
+    "watch": "tsc --watch",
+    "start": "npm run start-proxy",
+    "start-simple": "tsc && node build/simple-server.js",
+    "start-http": "tsc && node build/http-server.js",
+    "start-proxy": "tsc && npx mcp-proxy node build/simple-server.js --port 45453 --sseEndpoint /sse",
+    "inspector": "npx @modelcontextprotocol/inspector build/simple-server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "0.6.0",
+    "express": "^4.18.2",
+    "mcp-proxy": "^5.1.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.24",
+    "typescript": "^5.3.3"
+  }
+}
