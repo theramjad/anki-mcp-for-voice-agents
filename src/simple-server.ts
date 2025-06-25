@@ -113,7 +113,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     case "listDecks":
       const decks = await ankiRequest<string[]>("deckNames");
       return {
-        toolResult: `📚 Found ${decks.length} decks in your Anki collection:\n\n• ${decks.join("\n• ")}\n\nUse getDueCards with a specific deck name to see due cards from that deck.`,
+        content: [
+          {
+            type: "text",
+            text: `📚 Found ${decks.length} decks in your Anki collection:\n\n• ${decks.join("\n• ")}\n\nUse getDueCards with a specific deck name to see due cards from that deck.`,
+          }
+        ],
       };
       
     case "getDueCards":
@@ -126,7 +131,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       
       if (cardIds.length === 0) {
         return {
-          toolResult: `🎉 No cards are due for review${request.params.arguments?.deckName ? ` in deck "${request.params.arguments.deckName}"` : ''}!`,
+          content: [
+            {
+              type: "text",
+              text: `🎉 No cards are due for review${request.params.arguments?.deckName ? ` in deck "${request.params.arguments.deckName}"` : ''}!`,
+            }
+          ],
         };
       }
       
@@ -146,7 +156,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }).join('\n\n');
       
       return {
-        toolResult: summary + cardDetails + (cardIds.length > 5 ? `\n\n... and ${cardIds.length - 5} more cards` : ''),
+        content: [
+          {
+            type: "text",
+            text: summary + cardDetails + (cardIds.length > 5 ? `\n\n... and ${cardIds.length - 5} more cards` : ''),
+          }
+        ],
       };
       
     case "addNote":
@@ -155,7 +170,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         { note: request.params.arguments },
       );
       return {
-        toolResult: `✅ Successfully created new note with ID: ${createdNoteId}\n\nThe note has been added to your Anki collection and will appear in your review queue according to your deck settings.`,
+        content: [
+          {
+            type: "text",
+            text: `✅ Successfully created new note with ID: ${createdNoteId}\n\nThe note has been added to your Anki collection and will appear in your review queue according to your deck settings.`,
+          }
+        ],
       };
 
     default:
