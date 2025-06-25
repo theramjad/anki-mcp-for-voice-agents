@@ -112,13 +112,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   switch (request.params.name) {
     case "listDecks":
       const decks = await ankiRequest<string[]>("deckNames");
+      
+      // Group decks by main category
+      const mainDecks = decks.filter(deck => !deck.includes("::"));
+      const subDecks = decks.filter(deck => deck.includes("::"));
+      
+      // Group subdecks by parent
+      const organized: Record<string, string[]> = {};
+      subDecks.forEach(deck => {
+        const parent = deck.split("::")[0];
+        if (!organized[parent]) organized[parent] = [];
+        organized[parent].push(deck);
+      });
+      
       return {
         content: [
           {
             type: "text",
-            text: `📚 Found ${decks.length} decks in your Anki collection:\n\n• ${decks.join("\n• ")}\n\nUse getDueCards with a specific deck name to see due cards from that deck.`,
+            text: JSON.stringify({
+              summary: "Anki Decks Summary",
+              totalDecks: decks.length,
+              mainDecks: mainDecks,
+              organizedDecks: organized
+            }, null, 2)
           }
-        ],
+        ]
       };
       
     case "getDueCards":
@@ -134,34 +152,47 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           content: [
             {
               type: "text",
-              text: `🎉 No cards are due for review${request.params.arguments?.deckName ? ` in deck "${request.params.arguments.deckName}"` : ''}!`,
+              text: JSON.stringify({
+                dueCards: 0,
+                deck: request.params.arguments?.deckName || "all decks",
+                message: "No cards currently due for review"
+              }, null, 2)
             }
-          ],
+          ]
         };
       }
       
       // Get detailed info for first 5 cards as examples
       const cardsInfo = await ankiRequest<any[]>("cardsInfo", { cards: cardIds.slice(0, 5) });
       
-      const deckFilter = request.params.arguments?.deckName ? ` from deck "${request.params.arguments.deckName}"` : " from all decks";
-      const summary = `📝 Found ${cardIds.length} cards due for review${deckFilter}\n\nShowing details for first 5 cards:\n\n`;
-      
-      const cardDetails = cardsInfo.map((card, index) => {
-        const deckName = card.deckName;
-        const modelName = card.modelName;
+      const cardData = cardsInfo.map(card => {
         const fieldNames = Object.keys(card.fields);
         const primaryField = fieldNames.length > 0 ? card.fields[fieldNames[0]]?.value || "No content" : "No content";
+        const cleanContent = primaryField.replace(/<[^>]*>/g, '').slice(0, 100);
         
-        return `${index + 1}. Deck: ${deckName}\n   Model: ${modelName}\n   Content: ${primaryField.replace(/<[^>]*>/g, '').slice(0, 100)}${primaryField.length > 100 ? '...' : ''}\n   Due: ${card.due} | Reps: ${card.reps} | Interval: ${card.interval} days`;
-      }).join('\n\n');
+        return {
+          id: card.cardId,
+          content: cleanContent,
+          deck: card.deckName,
+          model: card.modelName,
+          reviews: card.reps,
+          interval: card.interval,
+          due: card.due
+        };
+      });
       
       return {
         content: [
           {
             type: "text",
-            text: summary + cardDetails + (cardIds.length > 5 ? `\n\n... and ${cardIds.length - 5} more cards` : ''),
+            text: JSON.stringify({
+              totalDueCards: cardIds.length,
+              deck: request.params.arguments?.deckName || "all decks",
+              remainingCards: Math.max(0, cardIds.length - 5),
+              sampleCards: cardData
+            }, null, 2)
           }
-        ],
+        ]
       };
       
     case "addNote":
@@ -173,7 +204,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         content: [
           {
             type: "text",
-            text: `✅ Successfully created new note with ID: ${createdNoteId}\n\nThe note has been added to your Anki collection and will appear in your review queue according to your deck settings.`,
+            text: JSON.stringify({
+              success: true,
+              noteId: createdNoteId,
+              deck: request.params.arguments?.deckName,
+              model: request.params.arguments?.modelName,
+              message: "Note added to Anki collection"
+            }, null, 2)
           }
         ],
       };
